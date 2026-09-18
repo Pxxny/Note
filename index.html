@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Scrabble Note — Notes • Planner • Word Lab</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand"><span>⌁</span><div><b>Scrabble Note</b><small>Notes • Planner • Words</small></div></div>
+    <button class="new-btn" id="newNote">＋ New Note</button>
+    <nav>
+      <button class="nav active" data-view="notes">▤ Notes</button>
+      <button class="nav" data-view="words">Aa Word Bank</button>
+      <button class="nav" data-view="planner">□ Planner</button>
+      <button class="nav" data-view="favorites">☆ Favorites</button>
+      <button class="nav" data-view="trash">⌫ Trash</button>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="storage"><span class="dot"></span><span id="saveState">Saved locally</span></div>
+      <button class="ghost" id="exportBtn">⇩ Export JSON</button>
+      <label class="ghost import">⇧ Import JSON<input id="importInput" type="file" accept=".json"></label>
+      <button class="ghost" id="clearBtn">⚙ Reset demo data</button>
+    </div>
+  </aside>
+
+  <main>
+    <header class="topbar">
+      <div><h1 id="viewTitle">Notes</h1><p id="viewSub">Capture words, ideas and game notes.</p></div>
+      <div class="top-actions"><input id="globalSearch" placeholder="⌕ Search notes & words..." /><button id="themeBtn">☼</button></div>
+    </header>
+
+    <section id="notesView" class="view">
+      <div class="toolbar">
+        <div class="chips" id="tagFilters"></div>
+        <select id="sortSelect"><option value="updated">Recently updated</option><option value="created">Recently created</option><option value="az">A → Z</option></select>
+      </div>
+      <div class="notes-layout">
+        <div class="note-list" id="noteList"></div>
+        <article class="editor" id="editor">
+          <div class="empty-editor">เลือกโน้ตเพื่อเริ่มจด หรือกด <b>New Note</b></div>
+        </article>
+      </div>
+    </section>
+
+    <section id="wordsView" class="view hidden">
+      <div class="panel-head"><div><h2>Word Bank</h2><p>คลังคำศัพท์สำหรับ Scrabble พร้อมคะแนนและตัวอักษร</p></div><button class="primary" id="addWord">＋ Add Word</button></div>
+      <div class="word-stats"><div><b id="wordCount">0</b><span>Words</span></div><div><b id="letterCount">0</b><span>Letters</span></div><div><b id="pointsCount">0</b><span>Tile Points</span></div></div>
+      <div class="word-table" id="wordTable"></div>
+    </section>
+
+    <section id="plannerView" class="view hidden">
+      <div class="panel-head"><div><h2>Planner</h2><p>วางแผนการฝึกคำศัพท์และเป้าหมายประจำวัน</p></div><button class="primary" id="addTask">＋ Add Task</button></div>
+      <div class="planner" id="planner"></div>
+    </section>
+
+    <section id="favoritesView" class="view hidden">
+      <div class="panel-head"><div><h2>Favorites</h2><p>โน้ตที่ปักหมุดไว้</p></div></div><div class="note-grid" id="favoriteList"></div>
+    </section>
+
+    <section id="trashView" class="view hidden">
+      <div class="panel-head"><div><h2>Trash</h2><p>โน้ตที่ลบแล้วจะอยู่ที่นี่จนกว่าจะลบทิ้งถาวร</p></div></div><div class="note-grid" id="trashList"></div>
+    </section>
+  </main>
+  <div id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>
