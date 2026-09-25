@@ -1,78 +1,209 @@
-const KEY='scrabble-note-v2';
-const LEGACY_KEY='scrabble-note-v1';
-const BACKUP_KEY='scrabble-note-auto-backup';
-const now=()=>new Date().toISOString();
-const uid=()=>Math.random().toString(36).slice(2)+Date.now().toString(36);
-const dateKey=d=>{const x=new Date(d);return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`};
-const today=dateKey(new Date());
-const demo={notes:[{id:uid(),title:'Scrabble — Useful 7 Letter Words',body:'Example notes\n\n• words that use common hooks\n• keep difficult anagrams here\n• add meanings and mnemonics',tags:['scrabble','7-letter'],favorite:true,deleted:false,created:now(),updated:now()},{id:uid(),title:'Q / Z / X Words',body:'Q words:\n- QUEEN\n- QUA...\n\nAdd your own discoveries while studying.',tags:['letters'],favorite:false,deleted:false,created:now(),updated:now()}],words:[{word:'QUEEN',meaning:'ราชินี',score:14,tags:'Q'},{word:'QUIZ',meaning:'แบบทดสอบ',score:23,tags:'Q Z'},{word:'JAZZ',meaning:'ดนตรีแจ๊ซ',score:29,tags:'J Z'},{word:'OX',meaning:'วัวตัวผู้',score:9,tags:'X'},{word:'BOX',meaning:'กล่อง',score:12,tags:'X'}],tasks:[{id:uid(),date:today,text:'ทบทวนคำ 20 คำ',done:false},{id:uid(),date:dateKey(Date.now()+864e5),text:'เพิ่มคำศัพท์ Q / Z',done:false}],events:[{id:uid(),date:today,time:'19:00',title:'ฝึกศัพท์ Scrabble',type:'Practice',noteId:null} ]};
-// Safe migration: keep the old v1 data and merge it into v2 instead of replacing it.
-const parseJSON=(key)=>{try{return JSON.parse(localStorage.getItem(key)||'null')}catch{return null}};
-const legacy=parseJSON(LEGACY_KEY);
-let state=parseJSON(KEY)||demo;
-if(legacy){
-  // Preserve an untouched copy before any migration work.
-  try{localStorage.setItem('scrabble-note-v1-backup',JSON.stringify(legacy))}catch{}
-  state={...state,
-    notes:Array.isArray(legacy.notes)?legacy.notes:[...(state.notes||[])],
-    words:Array.isArray(legacy.words)?legacy.words:[...(state.words||[])],
-    tasks:Array.isArray(legacy.tasks)?legacy.tasks:[...(state.tasks||[])],
-    events:Array.isArray(legacy.events)?legacy.events:[...(state.events||[])]
-  };
-  // Avoid duplicate records if a previous migration already copied some items.
-  state.notes=[...new Map(state.notes.map(x=>[x.id,x])).values()];
-  state.words=[...new Map(state.words.map((x,i)=>[x.word+'|'+i,x])).values()];
-  state.tasks=[...new Map(state.tasks.map(x=>[x.id,x])).values()];
-  state.events=[...new Map(state.events.map(x=>[x.id,x])).values()];
-  localStorage.setItem(KEY,JSON.stringify(state));
-  localStorage.setItem('scrabble-note-migrated','true');
+
+const MODES = [
+ {id:"chill",icon:"🧘",name:"จำชิล ๆ",desc:"วันนี้ขอแค่จำได้ ไม่ต้องรีบ",level:1,time:"15–20 นาที",words:"20–30",goal:24},
+ {id:"steady",icon:"🌱",name:"จำไม่เร่ง",desc:"ค่อย ๆ จำ แต่จำจริง",level:2,time:"25–30 นาที",words:"30–45",goal:36},
+ {id:"marathon",icon:"🏃",name:"จำมาราธอน",desc:"ใช้เวลาวันนี้สร้างคลังศัพท์",level:4,time:"60–120 นาที",words:"80–140",goal:100},
+ {id:"speed",icon:"⚡",name:"จำสปีด",desc:"เวลาน้อย แต่ยังรักษาความต่อเนื่อง",level:3,time:"10–15 นาที",words:"15–25",goal:20},
+ {id:"master",icon:"🎯",name:"จำให้แม่น",desc:"จำให้แม่น ไม่ใช่แค่เคยเห็น",level:3,time:"20–30 นาที",words:"20–30",goal:24},
+ {id:"rescue",icon:"🔥",name:"กู้ศัพท์ที่ลืม",desc:"เคลียร์คำที่ค้างอยู่",level:2,time:"20–30 นาที",words:"15–30",goal:24},
+ {id:"brain",icon:"🧠",name:"Brain Training",desc:"เปลี่ยนรูปแบบโจทย์ไปเรื่อย ๆ",level:3,time:"25–35 นาที",words:"30–50",goal:36},
+ {id:"random",icon:"🎲",name:"สุ่มไม่จำเจ",desc:"ฝึกโดยไม่รู้ว่าโจทย์ต่อไปคืออะไร",level:3,time:"20–30 นาที",words:"25–40",goal:30},
+ {id:"challenge",icon:"🏆",name:"Challenge",desc:"แข่งกับสถิติของตัวเอง",level:4,time:"30–45 นาที",words:"35–60",goal:45},
+ {id:"letters",icon:"📚",name:"เจาะ Letters",desc:"เลือกความยาวที่อยากเจาะ",level:2,time:"20–45 นาที",words:"กำหนดเอง",goal:30},
+ {id:"review",icon:"🔄",name:"Review Day",desc:"รักษาความจำของศัพท์เก่า",level:2,time:"20–40 นาที",words:"20–50",goal:35},
+ {id:"full",icon:"🚀",name:"Full Grind",desc:"ฝึกเต็มระบบในวันที่พร้อม",level:5,time:"60–120 นาที",words:"100–180",goal:120}
+];
+const TYPES = ["Word Recall","Letter → Word","Word → Letter","Anagram","Unscramble","Missing Letters","Reverse Recall","Multiple Choice","Timed Quiz","Mixed Quiz"];
+const LETTERS=[3,4,5,6,7,8,9];
+const DEFAULT = {mode:null, count:null, countPreset:"normal", letters:[3,4,5,6,7,8,9], types:["Mixed Quiz","Word Recall","Anagram"], plan:[], currentSession:0, currentWord:null};
+const KEY="dwt-state-v1";
+let state = loadState();
+
+function loadState(){
+  try{
+    const saved=JSON.parse(localStorage.getItem(KEY)||"null");
+    return Object.assign({mode:null, selectedMode:null, countPreset:"normal", letters:[3,4,5,6,7,8,9], types:["Mixed Quiz","Word Recall","Anagram"], today:{}, stats:{}, memory:{}, history:{}}, saved||{});
+  }catch(e){return {...DEFAULT}}
 }
-state.notes??=[];state.words??=[];state.tasks??=[];state.events??=[];
-state.tasks=state.tasks.map(t=>({...t,id:t.id||uid()}));state.events=state.events.map(e=>({...e,id:e.id||uid()}));
-let selected=state.notes.find(n=>!n.deleted)?.id||null,view='notes',filter='all',query='',calMode='month',calDate=new Date();
-let backupTimer;
-const save=()=>{
-  const data=JSON.stringify(state);
-  localStorage.setItem(KEY,data);
-  clearTimeout(backupTimer);
-  backupTimer=setTimeout(()=>{try{localStorage.setItem(BACKUP_KEY,JSON.stringify({savedAt:now(),state}))}catch{}},350);
-  const el=document.querySelector('#saveState');if(el)el.textContent='Saved • '+new Date().toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});
-};
-const toast=s=>{const t=document.querySelector('#toast');t.textContent=s;t.classList.add('show');clearTimeout(window.tt);window.tt=setTimeout(()=>t.classList.remove('show'),1500)};
-const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
-function renderNotes(){const list=document.querySelector('#noteList');let ns=state.notes.filter(n=>!n.deleted&&(filter==='all'||n.tags.includes(filter))&&(n.title+' '+n.body+' '+n.tags.join(' ')).toLowerCase().includes(query.toLowerCase()));const sort=document.querySelector('#sortSelect').value;ns.sort((a,b)=>sort==='az'?a.title.localeCompare(b.title):sort==='created'?b.created.localeCompare(a.created):b.updated.localeCompare(a.updated));list.innerHTML=ns.map(n=>`<div class="note-card ${n.id===selected?'selected':''}" data-id="${n.id}"><h3>${n.favorite?'☆ ':''}${esc(n.title||'Untitled')}</h3><p>${esc(n.body.replace(/\n/g,' '))}</p><div class="meta">${new Date(n.updated).toLocaleString('th-TH',{dateStyle:'medium',timeStyle:'short'})}</div></div>`).join('')||'<div class="empty-list">ยังไม่มีโน้ต</div>';list.querySelectorAll('.note-card').forEach(x=>x.onclick=()=>{selected=x.dataset.id;renderNotes();renderEditor()});const tags=[...new Set(state.notes.filter(n=>!n.deleted).flatMap(n=>n.tags))];document.querySelector('#tagFilters').innerHTML='<button class="chip '+(filter==='all'?'active':'')+'" data-tag="all">All</button>'+tags.map(t=>`<button class="chip ${filter===t?'active':''}" data-tag="${esc(t)}">${esc(t)}</button>`).join('');document.querySelectorAll('[data-tag]').forEach(x=>x.onclick=()=>{filter=x.dataset.tag;renderNotes()})}
-function renderEditor(){const n=state.notes.find(x=>x.id===selected&&!x.deleted),e=document.querySelector('#editor');if(!n){e.innerHTML='<div class="empty-editor">เลือกโน้ตเพื่อเริ่มจด หรือกด <b>New Note</b></div>';return}const linked=state.events.filter(x=>x.noteId===n.id);e.innerHTML=`<div class="editor-head"><input class="title-input" id="title" value="${esc(n.title)}"><button class="icon-btn" id="fav">${n.favorite?'★':'☆'}</button><button class="icon-btn" id="del">⌫</button></div><div class="editor-body"><textarea id="body" placeholder="Start writing...">${esc(n.body)}</textarea></div><div class="editor-foot"><div>Tags: <input class="tag-input" id="tags" value="${esc(n.tags.join(', '))}" placeholder="scrabble, hooks, Q"></div><div class="quick-actions"><button class="quick-btn" id="scheduleNote">＋ Calendar</button><button class="quick-btn" id="duplicateNote">⧉</button><span>${linked.length} linked event${linked.length===1?'':'s'} • Autosave</span></div></div>`;const update=()=>{n.title=document.querySelector('#title').value;n.body=document.querySelector('#body').value;n.tags=document.querySelector('#tags').value.split(',').map(x=>x.trim()).filter(Boolean);n.updated=now();save();renderNotes()};['title','body','tags'].forEach(id=>document.querySelector('#'+id).addEventListener('input',()=>{clearTimeout(window.st);window.st=setTimeout(update,250)}));document.querySelector('#fav').onclick=()=>{n.favorite=!n.favorite;save();renderEditor();renderNotes()};document.querySelector('#del').onclick=()=>{n.deleted=true;selected=state.notes.find(x=>!x.deleted)?.id||null;save();renderNotes();renderEditor();toast('Moved to Trash')};document.querySelector('#duplicateNote').onclick=()=>{const copy={...n,id:uid(),title:(n.title||'Untitled')+' (Copy)',created:now(),updated:now(),tags:[...n.tags]};state.notes.unshift(copy);selected=copy.id;save();renderNotes();renderEditor();toast('Duplicated note')};document.querySelector('#scheduleNote').onclick=()=>{addEvent(n.id)} }
-function newNote(){const n={id:uid(),title:'Untitled Note',body:'',tags:[],favorite:false,deleted:false,created:now(),updated:now()};state.notes.unshift(n);selected=n.id;save();switchView('notes');setTimeout(()=>document.querySelector('#title')?.focus(),50)}
-function renderWords(){let ws=state.words.filter(w=>(w.word+' '+w.meaning+' '+w.tags).toLowerCase().includes(query.toLowerCase())).sort((a,b)=>a.word.localeCompare(b.word));document.querySelector('#wordCount').textContent=state.words.length;document.querySelector('#letterCount').textContent=state.words.reduce((a,w)=>a+w.word.length,0);document.querySelector('#pointsCount').textContent=state.words.reduce((a,w)=>a+(Number(w.score)||0),0);document.querySelector('#wordTable').innerHTML='<div class="word-row head"><span>WORD</span><span>MEANING</span><span>POINTS</span><span>TAGS</span><span></span></div>'+ws.map(w=>`<div class="word-row"><span class="word">${esc(w.word)}</span><span>${esc(w.meaning)}</span><span class="score">${w.score}</span><span>${esc(w.tags)}</span><button onclick="removeWord(${state.words.indexOf(w)})">×</button></div>`).join('')}
-window.removeWord=i=>{state.words.splice(i,1);save();renderWords()};
-function addWord(){let word=prompt('Word (ตัวพิมพ์ใหญ่):');if(!word)return;word=word.trim().toUpperCase();let meaning=prompt('Meaning / ความหมาย:')||'';let score=prompt('Tile points:','0');state.words.push({word,meaning,score:Number(score)||0,tags:''});save();renderWords();toast('Added word')}
-function addTask(date=today){const text=prompt('Task:');if(!text)return;const d=prompt('Date (YYYY-MM-DD):',date)||date;if(!/^\d{4}-\d{2}-\d{2}$/.test(d))return toast('รูปแบบวันที่ไม่ถูกต้อง');state.tasks.push({id:uid(),date:d,text:text.trim(),done:false});save();renderCalendar();renderDayPanel(d);toast('เพิ่ม Task แล้ว')}
-function addEvent(noteId=null,date=dateKey(calDate)){const title=prompt('Event name:');if(!title)return;const d=prompt('Date (YYYY-MM-DD):',date)||date;const time=prompt('Time (HH:MM):','19:00')||'';const type=prompt('Category:','Practice')||'Other';state.events.push({id:uid(),date:d,time,title:title.trim(),type,noteId});save();renderCalendar();renderDayPanel(d);toast('เพิ่ม Event แล้ว')}
-function startOfWeek(d){const x=new Date(d);x.setHours(12,0,0,0);const day=(x.getDay()+6)%7;x.setDate(x.getDate()-day);return x}
-function fmt(d,opt){return new Intl.DateTimeFormat('th-TH',opt).format(d)}
-function renderDashboard(){const tasksToday=state.tasks.filter(t=>t.date===today),done=tasksToday.filter(t=>t.done).length,events=state.events.filter(e=>e.date===today);const streak=new Set([...state.tasks.filter(t=>t.done).map(t=>t.date),...state.events.map(e=>e.date)]);let s=0,d=new Date();while(streak.has(dateKey(d))){s++;d.setDate(d.getDate()-1)}document.querySelector('#dashboard').innerHTML=`<div><b>${tasksToday.length}</b><span>Today tasks</span><small>${done} done</small></div><div><b>${events.length}</b><span>Today's events</span><small>next: ${events[0]?.time||'—'}</small></div><div><b>${s}</b><span>Activity streak</span><small>days active</small></div><div><b>${state.notes.filter(n=>!n.deleted).length}</b><span>Notes</span><small>${state.words.length} words</small></div>`}
-function itemsForDate(d){return [...state.events.filter(e=>e.date===d).map(e=>({kind:'event',...e})),...state.tasks.filter(t=>t.date===d).map(t=>({kind:'task',...t}))].sort((a,b)=>(a.time||'99:99').localeCompare(b.time||'99:99'))}
-function renderCalendar(){renderDashboard();const c=document.querySelector('#calendar');if(calMode==='month')renderMonth(c);else if(calMode==='week')renderWeek(c);else renderDay(c);document.querySelectorAll('.cal-date').forEach(x=>x.onclick=()=>{calDate=new Date(x.dataset.date+'T12:00:00');renderCalendar();renderDayPanel(x.dataset.date)});document.querySelector('#periodLabel').textContent=calMode==='month'?fmt(calDate,{month:'long',year:'numeric'}):calMode==='week'?`${fmt(startOfWeek(calDate),{day:'numeric',month:'short'})} – ${fmt(new Date(startOfWeek(calDate).getTime()+6*864e5),{day:'numeric',month:'short',year:'numeric'})}`:fmt(calDate,{weekday:'long',day:'numeric',month:'long',year:'numeric'});renderDayPanel(dateKey(calDate))}
-function cell(d){const dk=dateKey(d),its=itemsForDate(d);return `<div class="cal-cell ${dk===today?'today':''} ${dk===dateKey(calDate)?'chosen':''}"><button class="cal-date" data-date="${dk}">${d.getDate()}</button><div class="cell-items">${its.slice(0,4).map(i=>`<div class="cal-item ${i.kind} ${i.done?'done':''}">${i.kind==='event'?'●':'☐'} ${esc(i.time?i.time+' ':'')}${esc(i.title||i.text)}</div>`).join('')}${its.length>4?`<small>+${its.length-4} more</small>`:''}</div></div>`}
-function renderMonth(c){const y=calDate.getFullYear(),m=calDate.getMonth(),first=new Date(y,m,1),start=new Date(first);start.setDate(1-((first.getDay()+6)%7));c.innerHTML='<div class="weekday-row">'+['จ','อ','พ','พฤ','ศ','ส','อา'].map(x=>`<span>${x}</span>`).join('')+'</div><div class="month-grid">'+Array.from({length:42},(_,i)=>{const d=new Date(start);d.setDate(start.getDate()+i);return cell(d)}).join('')+'</div>'}
-function renderWeek(c){const s=startOfWeek(calDate);c.innerHTML='<div class="week-grid">'+Array.from({length:7},(_,i)=>{const d=new Date(s);d.setDate(s.getDate()+i);return `<div class="week-col"><div class="week-head">${fmt(d,{weekday:'short'})}<b>${d.getDate()}</b></div>${itemsForDate(dateKey(d)).map(()=> '').join('')}${itemsForDate(d).map(it=>`<div class="week-item ${it.kind} ${it.done?'done':''}"><b>${esc(it.time||'')}</b> ${esc(it.title||it.text)}</div>`).join('')||'<span class="muted">ว่าง</span>'}<button class="tiny-add" data-date="${dateKey(d)}">＋</button></div>`}).join('')+'</div>';c.querySelectorAll('.tiny-add').forEach(b=>b.onclick=()=>addEvent(null,b.dataset.date))}
-function renderDay(c){const d=calDate,its=itemsForDate(d);c.innerHTML=`<div class="day-view"><h3>${fmt(d,{weekday:'long',day:'numeric',month:'long'})}</h3>${its.map(it=>`<div class="day-item ${it.kind}"><b>${it.kind==='event'?(it.time||''):'TASK'}</b><span>${esc(it.title||it.text)}</span>${it.kind==='task'?`<input type="checkbox" ${it.done?'checked':''} onchange="toggleTask('${it.id}')">`:''}</div>`).join('')||'<div class="muted">ไม่มีรายการวันนี้</div>'}</div>`}
-function renderDayPanel(d){const p=document.querySelector('#dayPanel'),its=itemsForDate(d),notes=state.notes.filter(n=>!n.deleted);p.innerHTML=`<div class="day-panel-head"><div><h3>${fmt(new Date(d+'T12:00:00'),{weekday:'long',day:'numeric',month:'long'})}</h3><small>${its.length} รายการ</small></div><button class="mini-btn" id="panelAdd">＋ เพิ่ม</button></div><div class="quick-summary"><b>${state.tasks.filter(t=>t.date===d&&t.done).length}/${state.tasks.filter(t=>t.date===d).length}</b><span>tasks done</span></div>${its.map(i=>`<div class="panel-item ${i.kind}"><div><b>${i.kind==='event'?(i.time||''):'☐'}</b><span>${esc(i.title||i.text)}</span></div>${i.kind==='task'?`<button onclick="toggleTask('${i.id}')">${i.done?'↩':'✓'}</button>`:`<button onclick="deleteEvent('${i.id}')">×</button>`}</div>`).join('')||'<div class="muted">ยังไม่มี Event หรือ Task</div>'}<div class="panel-links"><b>Notes</b>${notes.slice(0,5).map(n=>`<button onclick="openNote('${n.id}')">${esc(n.title)}</button>`).join('')||'<span class="muted">ไม่มีโน้ต</span>'}</div>`;document.querySelector('#panelAdd').onclick=()=>addEvent(null,d)}
-window.toggleTask=id=>{const t=state.tasks.find(x=>x.id===id);if(t)t.done=!t.done;save();renderCalendar();renderDayPanel(t?.date||today)};window.deleteEvent=id=>{const e=state.events.find(x=>x.id===id),d=e?.date;state.events=state.events.filter(x=>x.id!==id);save();renderCalendar();renderDayPanel(d||today);toast('ลบ Event แล้ว')};
-function renderGrid(target,deleted=false){const ns=state.notes.filter(n=>n.deleted===deleted&&(!deleted?n.favorite:true));document.querySelector(target).innerHTML=ns.map(n=>`<div class="grid-card"><h3>${esc(n.title)}</h3><p>${esc(n.body)}</p><button onclick="openNote('${n.id}')">Open</button>${deleted?`<button onclick="restore('${n.id}')">Restore</button><button onclick="purge('${n.id}')">Delete forever</button>`:''}</div>`).join('')||'<div class="muted">ไม่มีรายการ</div>'}
-window.openNote=id=>{selected=id;switchView('notes');renderNotes();renderEditor()};window.restore=id=>{const n=state.notes.find(x=>x.id===id);n.deleted=false;n.updated=now();save();renderGrid('#trashList',true)};window.purge=id=>{state.notes=state.notes.filter(x=>x.id!==id);save();renderGrid('#trashList',true)};
-function switchView(v){view=v;document.querySelectorAll('.view').forEach(x=>x.classList.add('hidden'));document.querySelector('#'+v+'View').classList.remove('hidden');document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===v));const names={notes:['Notes','Capture words, ideas and game notes.'],words:['Word Bank','คลังคำศัพท์สำหรับ Scrabble'],planner:['Calendar','Calendar + Planner + Notes'],favorites:['Favorites','โน้ตที่ปักหมุดไว้'],trash:['Trash','โน้ตที่ลบแล้ว']};document.querySelector('#viewTitle').textContent=names[v][0];document.querySelector('#viewSub').textContent=names[v][1];if(v==='notes'){renderNotes();renderEditor()}if(v==='words')renderWords();if(v==='planner')renderCalendar();if(v==='favorites')renderGrid('#favoriteList');if(v==='trash')renderGrid('#trashList',true)}
-function initSplit(){const layout=document.querySelector('#notesLayout'),divider=document.querySelector('#splitDivider');const saved=Number(localStorage.getItem('scrabble-list-width')||300);layout.style.setProperty('--list-width',Math.max(190,Math.min(520,saved))+'px');let drag=false;divider.addEventListener('pointerdown',e=>{drag=true;divider.setPointerCapture?.(e.pointerId)});divider.addEventListener('pointermove',e=>{if(!drag)return;const r=layout.getBoundingClientRect(),w=Math.max(190,Math.min(520,e.clientX-r.left));layout.style.setProperty('--list-width',w+'px');localStorage.setItem('scrabble-list-width',w)});divider.addEventListener('pointerup',()=>drag=false);document.querySelector('#listWidthBtn').onclick=()=>{const w=parseInt(getComputedStyle(layout).getPropertyValue('--list-width'))||300,next=w<280?380:w<360?450:240;layout.style.setProperty('--list-width',next+'px');localStorage.setItem('scrabble-list-width',next);toast('ปรับสัดส่วน 2 จอ')};document.querySelector('#listCollapseBtn').onclick=()=>{layout.classList.toggle('list-collapsed');document.querySelector('#listCollapseBtn').textContent=layout.classList.contains('list-collapsed')?'› รายการ':'‹ รายการ'};document.querySelector('#splitBtn').onclick=()=>{layout.classList.toggle('list-collapsed');document.querySelector('#listCollapseBtn').textContent=layout.classList.contains('list-collapsed')?'› รายการ':'‹ รายการ'};document.querySelector('#focusBtn').onclick=()=>{document.body.classList.toggle('focus-mode');document.querySelector('#focusBtn span').textContent=document.body.classList.contains('focus-mode')?'ออก':'เขียน'} }
-document.querySelectorAll('.nav').forEach(x=>x.onclick=()=>switchView(x.dataset.view));document.querySelector('#newNote').onclick=newNote;document.querySelector('#addWord').onclick=addWord;document.querySelector('#addTask').onclick=()=>addTask();document.querySelector('#addEvent').onclick=()=>addEvent();document.querySelector('#todayBtn').onclick=()=>{calDate=new Date();renderCalendar()};document.querySelector('#prevPeriod').onclick=()=>{if(calMode==='month')calDate.setMonth(calDate.getMonth()-1);else if(calMode==='week')calDate.setDate(calDate.getDate()-7);else calDate.setDate(calDate.getDate()-1);renderCalendar()};document.querySelector('#nextPeriod').onclick=()=>{if(calMode==='month')calDate.setMonth(calDate.getMonth()+1);else if(calMode==='week')calDate.setDate(calDate.getDate()+7);else calDate.setDate(calDate.getDate()+1);renderCalendar()};document.querySelectorAll('.cal-view').forEach(b=>b.onclick=()=>{calMode=b.dataset.cal;document.querySelectorAll('.cal-view').forEach(x=>x.classList.toggle('active',x===b));renderCalendar()});document.querySelector('#sortSelect').onchange=renderNotes;document.querySelector('#globalSearch').oninput=e=>{query=e.target.value;if(view==='notes')renderNotes();if(view==='words')renderWords();if(view==='planner')renderCalendar()};document.querySelector('#exportBtn').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(state,null,2)],{type:'application/json'}));a.download='scrabble-note-backup.json';a.click();toast('Exported backup')};document.querySelector('#importInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{
-  const incoming=JSON.parse(r.result); if(!incoming||typeof incoming!=='object')throw 0;
-  // Keep current data as an automatic rollback before importing.
-  localStorage.setItem('scrabble-note-before-import',JSON.stringify({savedAt:now(),state}));
-  state={...state,
-    notes:[...(state.notes||[]),...(incoming.notes||[])],words:[...(state.words||[]),...(incoming.words||[])],
-    tasks:[...(state.tasks||[]),...(incoming.tasks||[])],events:[...(state.events||[]),...(incoming.events||[])]};
-  state.notes=[...new Map(state.notes.map(x=>[x.id,x])).values()];
-  state.tasks=[...new Map(state.tasks.map(x=>[x.id,x])).values()];
-  state.events=[...new Map(state.events.map(x=>[x.id,x])).values()];
-  state.words=[...new Map(state.words.map(x=>[(x.word||'')+'|'+JSON.stringify(x),x])).values()];
-  selected=state.notes.find(n=>!n.deleted)?.id||null;save();switchView('notes');toast('Imported + existing data kept');
-}catch{toast('Invalid JSON')}};r.readAsText(f)};document.querySelector('#clearBtn').onclick=()=>{if(confirm('Reset current data? A backup will be kept first.')){try{localStorage.setItem('scrabble-note-before-reset',JSON.stringify({savedAt:now(),state}))}catch{}state=JSON.parse(JSON.stringify(demo));selected=state.notes[0].id;save();switchView('notes');toast('Reset complete • backup kept')}};document.querySelector('#themeBtn').onclick=()=>{document.body.classList.toggle('dark');localStorage.setItem('scrabble-dark',document.body.classList.contains('dark'))};if(localStorage.getItem('scrabble-dark')==='true')document.body.classList.add('dark');initSplit();save();switchView('notes');
+function save(){localStorage.setItem(KEY,JSON.stringify(state))}
+function esc(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
+function stars(n){return "⭐".repeat(n)}
+function data(){
+  return globalThis.CSW24_BY_LENGTH||{};
+}
+function allWords(lengths=LETTERS){
+  const d=data(); return lengths.flatMap(n=>d[n]||[]);
+}
+function pickWords(n,lengths=state.letters){
+  const pool=allWords(lengths);
+  const shuffled=pool.slice().sort(()=>Math.random()-.5);
+  return shuffled.slice(0,n);
+}
+function memoryStatus(word){
+  const m=state.memory[word];
+  if(!m) return ["🟡","Learning","yellow"];
+  if(m.level>=4) return ["🟢","Mastered","green"];
+  if(m.level>=2) return ["🟡","Learning","yellow"];
+  if(m.level===1) return ["🟠","Weak","orange"];
+  return ["🔴","Forgotten","red"];
+}
+function recordAnswer(word,correct,ms=0){
+  const m=state.memory[word]||{level:0,reps:0,correct:0,wrong:0,due:Date.now()};
+  m.reps++; correct?m.correct++:m.wrong++;
+  if(correct){m.level=Math.min(4,m.level+1); const days=[0,1,3,7,14,30][Math.min(m.level,5)];m.due=Date.now()+days*864e5}
+  else{m.level=Math.max(0,m.level-1);m.due=Date.now()}
+  m.last=Date.now();m.avgMs=m.avgMs?Math.round(m.avgMs*.7+ms*.3):ms;state.memory[word]=m;
+  const t=state.today||{};t.learned=(t.learned||0)+(correct?1:0);t.attempts=(t.attempts||0)+1;t.correct=(t.correct||0)+(correct?1:0);t.time=(t.time||0)+ms;state.today=t;save();
+}
+function todayKey(){return new Date().toISOString().slice(0,10)}
+function modeById(id){return MODES.find(x=>x.id===id)||MODES[0]}
+function setTheme(){document.documentElement.dataset.theme=state.theme||"light"}
+function render(){
+  setTheme();
+  const app=document.getElementById("app");
+  const page=state.page||"home";
+  app.innerHTML=`<div class="app-shell">
+    <header class="topbar"><div class="topbar-inner"><div class="brand">📚 Daily Word Training</div><button class="icon-btn" onclick="toggleTheme()" aria-label="theme">☾</button></div></header>
+    <main>${page==="home"?homePage():page==="practice"?practicePage():page==="review"?reviewPage():page==="stats"?statsPage():page==="calendar"?calendarPage():settingsPage()}</main>
+    ${nav(page)}
+  </div>${state.toast?`<div class="toast">${esc(state.toast)}</div>`:""}`;
+  if(state.toast){const t=state.toast;state.toast=null;setTimeout(render,1300)}
+}
+function nav(page){
+ const items=[["home","🏠","Home"],["practice","📚","Practice"],["review","🔄","Review"],["stats","📊","Statistics"],["calendar","📅","Calendar"],["settings","⚙️","Settings"]];
+ return `<nav class="nav"><div class="nav-inner">${items.map(x=>`<button class="nav-btn ${page===x[0]?"active":""}" onclick="go('${x[0]}')"><span class="nav-icon">${x[1]}</span>${x[2]}</button>`).join("")}</div></nav>`;
+}
+function homePage(){
+ const selected=state.selectedMode;
+ return `<section class="hero"><div class="eyebrow">Personal Vocabulary Training System</div><h1>วันนี้สมองคุณไหวแค่ไหน?</h1><p>เลือกโหมดที่เหมาะกับวันนี้ แล้วให้ระบบจัดตารางฝึกให้คุณอัตโนมัติ</p></section>
+ <div class="mode-grid">${MODES.map(m=>`<article class="mode-card ${selected===m.id?"selected":""}" onclick="chooseMode('${m.id}')">
+   <div class="mode-icon">${m.icon}</div><div class="mode-title">${m.name}</div><div class="mode-desc">${m.desc}</div>
+   <div class="meta-row"><span class="pill">${stars(m.level)}</span><span class="pill">⏱ ${m.time}</span><span class="pill">📚 ${m.words} คำ</span></div>
+   <button class="mode-action" onclick="event.stopPropagation();chooseMode('${m.id}')">เลือกโหมดนี้</button>
+ </article>`).join("")}</div>
+ <div class="auto-card"><div><h2>✨ เลือกให้ฉัน</h2><p>ตอบ 3 คำถามสั้น ๆ แล้วระบบเลือกโหมดและ Daily Plan ให้</p></div><button class="primary" onclick="autoWizard()">เลือกให้ฉัน</button></div>`;
+}
+function chooseMode(id){
+ state.selectedMode=id; state.mode=id; save(); state.toast=`เลือกโหมด ${modeById(id).name} แล้ว`; state.page="practice"; render();
+}
+function practicePage(){
+ if(!state.mode) return `<section class="hero"><h1>เริ่มจากเลือกโหมด</h1><p>กลับไปหน้า Home เพื่อเลือกความหนักเบาที่เหมาะกับวันนี้</p><div class="actions"><button class="primary" onclick="go('home')">เลือกโหมด</button></div></section>`;
+ const m=modeById(state.mode); const count=currentCount(m); const p=buildPlan(m);
+ return `<div class="page-title"><div><h2>${m.icon} ${m.name}</h2><p>${m.desc}</p></div><button class="secondary" onclick="go('home')">เปลี่ยนโหมด</button></div>
+ <section class="panel"><div class="section-title">ตั้งค่าการฝึกวันนี้</div><div class="field-label">จำนวนศัพท์</div>
+ <div class="choice-grid">${[["light","เบา"],["normal","ปกติ"],["heavy","เยอะ"],["custom","กำหนดเอง"]].map(x=>`<button class="choice ${state.countPreset===x[0]?"active":""}" onclick="setCount('${x[0]}')">${x[1]}${x[0]!=="custom"?` · ${suggestCount(m,x[0])}`:""}</button>`).join("")}</div>
+ ${state.countPreset==="custom"?`<div style="margin-top:12px"><input type="number" min="5" max="300" value="${count}" onchange="setCustomCount(this.value)" style="width:140px;padding:11px;border-radius:12px;border:1px solid var(--line);background:var(--panel);color:var(--text)"></div>`:""}
+ </section>
+ <section class="panel"><div class="section-title">Letters</div><div class="choice-grid">${LETTERS.map(n=>`<button class="choice ${state.letters.includes(n)?"active":""}" onclick="toggleLetter(${n})">${n} Letters</button>`).join("")}</div><div class="actions"><button class="secondary" onclick="selectAllLetters()">เลือกทั้งหมด</button></div></section>
+ <section class="panel"><div class="section-title">ประเภทการฝึก</div><div class="choice-grid">${TYPES.map(t=>`<button class="choice ${state.types.includes(t)?"active":""}" onclick="toggleType('${t}')">${t}</button>`).join("")}</div></section>
+ <section class="panel"><div class="section-title">Daily Plan</div>${p.map((x,i)=>`<div class="word-row"><div><b>${x.icon} ${x.name}</b><div style="color:var(--muted);font-size:13px">${x.desc}</div></div><b>${x.words} คำ</b><span class="tag">${x.time}</span><button class="primary" onclick="startSession(${i})">${i<state.currentSession?"✓ เสร็จแล้ว":i===state.currentSession?"▶ เริ่ม":"ดูแผน"}</button></div>`).join("")}</section>`;
+}
+function suggestCount(m,p){return p==="light"?Math.max(8,Math.round(m.goal*.65)):p==="heavy"?Math.round(m.goal*1.5):m.goal}
+function currentCount(m){return state.countPreset==="custom"?Number(state.customCount||m.goal):suggestCount(m,state.countPreset||"normal")}
+function setCount(p){state.countPreset=p;save();render()}
+function setCustomCount(v){state.customCount=Math.max(5,Math.min(300,Number(v)||20));state.countPreset="custom";save();render()}
+function toggleLetter(n){state.letters=state.letters.includes(n)?state.letters.filter(x=>x!==n):[...state.letters,n].sort((a,b)=>a-b);if(!state.letters.length)state.letters=[3];save();render()}
+function selectAllLetters(){state.letters=[3,4,5,6,7,8,9];save();render()}
+function toggleType(t){state.types=state.types.includes(t)?state.types.filter(x=>x!==t):[...state.types,t];if(!state.types.length)state.types=["Mixed Quiz"];save();render()}
+function buildPlan(m){
+ const n=currentCount(m);
+ const plans={
+ chill:[["🌅","New Words",Math.ceil(n*.6),"8–10 นาที","ศัพท์ใหม่น้อย เน้นจำให้แม่น"],["☀️","Review",Math.ceil(n*.3),"4–6 นาที","ทบทวนเฉพาะคำที่ผิด"],["🌙","Finish",Math.floor(n*.1),"3–4 นาที","ปิดท้ายแบบไม่เร่ง"]],
+ steady:[["🌅","New Words",Math.ceil(n*.55),"10 นาที","ศัพท์ใหม่ระดับปานกลาง"],["☀️","Quick Review",Math.ceil(n*.25),"6 นาที","Recall + Anagram"],["🌙","Mini Quiz",Math.floor(n*.2),"6 นาที","Quiz สั้น ๆ"]],
+ marathon:[["🌅","New Words",Math.ceil(n*.3),"20 นาที","ชุดแรก"],["☀️","Review",Math.ceil(n*.2),"15 นาที","ทบทวน"],["☕","Break",0,"5 นาที","พักอัตโนมัติ"],["🌆","Quiz + Recall",Math.ceil(n*.25),"20 นาที","หลายรูปแบบ"],["🌙","Final Test",Math.ceil(n*.25),"15 นาที","สรุปผล"]],
+ speed:[["⚡","Quick Quiz",Math.ceil(n*.5),"5 นาที","เร็วและถูก"],["⚡","Timed Recall",Math.ceil(n*.35),"5 นาที","จับเวลา"],["✓","Finish",Math.floor(n*.15),"2–3 นาที","รักษาความต่อเนื่อง"]],
+ master:[["🎯","New Words",Math.ceil(n*.35),"8 นาที","คำใหม่ไม่เยอะ"],["🧠","Recall x2",Math.ceil(n*.45),"12 นาที","คำผิดกลับมาทันที"],["✓","Pass Check",Math.floor(n*.2),"5 นาที","ผ่านเมื่อถึงเกณฑ์"]],
+ rescue:[["🔥","Weak Words",Math.ceil(n*.5),"10 นาที","คำที่ผิด/ลืม"],["🔄","Review Queue",Math.ceil(n*.35),"8 นาที","คำถึงกำหนด"],["✓","Recovery Quiz",Math.floor(n*.15),"5 นาที","เช็กการฟื้นตัว"]],
+ brain:[["🧠","Mixed Brain Training",n,"25–35 นาที","Recall / Anagram / Unscramble"]],
+ random:[["🎲","Random Mix",n,"20–30 นาที","ระบบสุ่มโจทย์ต่อเนื่อง"]],
+ challenge:[["🏆","Challenge",Math.ceil(n*.7),"25 นาที","Score + XP + Combo"],["🏁","Final Score",Math.floor(n*.3),"10 นาที","เทียบสถิติของตัวเอง"]],
+ letters:[["📚","Selected Letters",n,"20–45 นาที","ฝึกตาม Letters ที่เลือก"]],
+ review:[["🔄","Review Queue",Math.ceil(n*.55),"15 นาที","Spaced Repetition"],["🟠","Weak Words",Math.ceil(n*.3),"10 นาที","คำที่ยังไม่แม่น"],["✓","Final Review",Math.floor(n*.15),"5 นาที","ปิดท้าย"]],
+ full:[["🚀","New Words",Math.ceil(n*.25),"20 นาที","เริ่มคลังใหม่"],["🔄","Review",Math.ceil(n*.15),"15 นาที","ทบทวน"],["🧠","Recall + Anagram",Math.ceil(n*.2),"15 นาที","ฝึกจำ"],["☕","Break",0,"5 นาที","พัก"],["⚡","Timed Quiz",Math.ceil(n*.2),"15 นาที","สปีด"],["🔥","Weak Words",Math.ceil(n*.1),"10 นาที","แก้จุดอ่อน"],["🏁","Final Test",Math.floor(n*.1),"10 นาที","สรุปผล"]]
+ };
+ return (plans[m.id]||plans.steady).map(x=>({icon:x[0],name:x[1],words:x[2],time:x[3],desc:x[4]}));
+}
+function startSession(i){
+ const p=buildPlan(modeById(state.mode))[i];
+ if(!p||p.name==="Break"){state.toast="พักสักหน่อยก็ได้ ☕";render();return}
+ state.currentSession=i; state.sessionWords=pickWords(Math.max(1,p.words||10),state.letters);state.quizIndex=0;state.sessionType=pickType();state.sessionStarted=Date.now();save();renderQuiz();
+}
+function pickType(){return state.types[Math.floor(Math.random()*state.types.length)]||"Word Recall"}
+function renderQuiz(){
+ const words=state.sessionWords||["WORD"]; const w=words[state.quizIndex];
+ if(!w){state.currentSession++;state.toast="Session สำเร็จ ✓";save();render();return}
+ const type=state.sessionType||"Word Recall";
+ let prompt="",extra="";
+ if(type==="Anagram"||type==="Letter → Word"){prompt=w.split("").sort().join(" ");extra=`<div class="anagram-letters">${w.split("").sort().map(c=>`<span class="tile">${c}</span>`).join("")}</div>`}
+ else if(type==="Word → Letter"){prompt=w;extra="<p style='color:var(--muted)'>พิมพ์ตัวอักษรของคำนี้</p>"}
+ else if(type==="Missing Letters"){const hide=Math.max(1,Math.floor(w.length/3));let a=w.split("");for(let i=0;i<hide;i++)a[Math.floor(Math.random()*a.length)]="_";prompt=a.join(" ")}
+ else {prompt=w;extra="<p style='color:var(--muted)'>จำคำนี้ แล้วตอบคำศัพท์/ตัวอักษรตามโจทย์</p>"}
+ document.getElementById("app").innerHTML=`<div class="app-shell"><main><section class="panel quiz">
+ <div class="eyebrow">${modeById(state.mode).name} · ${type}</div>
+ <h2>ข้อ ${state.quizIndex+1} / ${words.length}</h2>
+ <div class="prompt">${esc(prompt)}</div>${extra}
+ <input id="answer" autocomplete="off" autocapitalize="characters" placeholder="พิมพ์คำตอบ..." onkeydown="if(event.key==='Enter')submitAnswer()">
+ <div class="feedback" id="feedback"></div>
+ <div class="actions" style="justify-content:center"><button class="primary" onclick="submitAnswer()">ตรวจคำตอบ</button><button class="secondary" onclick="skipAnswer()">ข้าม</button></div>
+ </section></main></div>`;
+ setTimeout(()=>document.getElementById("answer")?.focus(),50)
+}
+function submitAnswer(){
+ const input=document.getElementById("answer"); if(!input)return;
+ const answer=input.value.trim().toUpperCase(); const w=state.sessionWords[state.quizIndex];
+ const type=state.sessionType; let expected=w;
+ if(type==="Word → Letter") expected=w.split("").sort().join("");
+ const correct=answer===expected;
+ recordAnswer(w,correct,Date.now()-(state.sessionStarted||Date.now()));
+ const f=document.getElementById("feedback");f.textContent=correct?"✓ ถูกต้อง":"ยังไม่ถูก — คำตอบ: "+expected;f.className="feedback "+(correct?"green":"red");
+ setTimeout(()=>{state.quizIndex++;state.sessionType=pickType();state.sessionStarted=Date.now();save();renderQuiz()},correct?500:1200)
+}
+function skipAnswer(){const w=state.sessionWords[state.quizIndex];recordAnswer(w,false,Date.now()-(state.sessionStarted||Date.now()));state.quizIndex++;state.sessionType=pickType();state.sessionStarted=Date.now();save();renderQuiz()}
+function reviewPage(){
+ const due=Object.entries(state.memory).filter(([w,m])=>!m.due||m.due<=Date.now()).sort((a,b)=>(a[1].level||0)-(b[1].level||0)).slice(0,80);
+ return `<div class="page-title"><div><h2>🔄 Review</h2><p>คำที่ถึงกำหนดจะกลับมาให้ทบทวนตาม Spaced Repetition</p></div></div>
+ <section class="panel"><div class="stats-grid"><div class="stat"><span>Review Queue</span><b>${due.length}</b></div><div class="stat"><span>Weak</span><b>${Object.values(state.memory).filter(m=>m.level<=1).length}</b></div><div class="stat"><span>Mastered</span><b>${Object.values(state.memory).filter(m=>m.level>=4).length}</b></div><div class="stat"><span>Today Accuracy</span><b>${accuracy()}%</b></div></div></section>
+ <section class="panel"><h3 class="section-title">📌 คำที่ควรทบทวนวันนี้</h3><div class="word-list">${due.length?due.map(([w,m])=>wordRow(w,m)).join(""):`<p style="color:var(--muted)">วันนี้ยังไม่มีคำที่ถึงกำหนด Review</p>`}</div><div class="actions"><button class="primary" onclick="startReview()">▶ เริ่ม Review</button></div></section>`;
+}
+function wordRow(w,m){const s=memoryStatus(w);return `<div class="word-row"><span class="word">${esc(w)}</span><span>${w.length}L</span><span class="tag ${s[2]}">${s[0]} ${s[1]}</span><span>${m.due&&m.due>Date.now()?new Date(m.due).toLocaleDateString("th-TH"):"ถึงกำหนด"}</span></div>`}
+function startReview(){const due=Object.entries(state.memory).filter(([w,m])=>!m.due||m.due<=Date.now()).map(x=>x[0]);state.sessionWords=(due.length?due:pickWords(20)).slice(0,40);state.sessionType="Word Recall";state.quizIndex=0;state.mode=state.mode||"review";state.sessionStarted=Date.now();save();renderQuiz()}
+function accuracy(){const t=state.today||{};return t.attempts?Math.round(t.correct/t.attempts*100):0}
+function statsPage(){
+ const mem=Object.values(state.memory);const learned=mem.length, mastered=mem.filter(m=>m.level>=4).length, review=mem.filter(m=>!m.due||m.due<=Date.now()).length;
+ return `<div class="page-title"><div><h2>📊 Statistics</h2><p>ดูพัฒนาการของตัวเองโดยไม่ต้องแข่งกับใคร</p></div></div>
+ <section class="panel"><div class="stats-grid"><div class="stat"><span>Words Learned</span><b>${learned}</b></div><div class="stat"><span>Words Mastered</span><b>${mastered}</b></div><div class="stat"><span>Words to Review</span><b>${review}</b></div><div class="stat"><span>Accuracy</span><b>${accuracy()}%</b></div></div></section>
+ <section class="panel"><h3 class="section-title">Progress 3–9 Letters</h3><div class="letter-bars">${LETTERS.map(n=>{const arr=Object.entries(state.memory).filter(([w])=>w.length===n);const done=arr.filter(([,m])=>m.level>=4).length;const pct=arr.length?Math.round(done/arr.length*100):0;return `<div class="letter-row"><b>${n} Letters</b><div class="bar"><i style="width:${pct}%"></i></div><span>${pct}%</span></div>`}).join("")}</div></section>
+ <section class="panel"><h3 class="section-title">Daily Checklist</h3><div class="check-grid">${["3 Letters","4 Letters","5 Letters","6 Letters","7 Letters","8 Letters","9 Letters","New Words","Review","Anagram","Recall","Final Quiz"].map((x,i)=>`<button class="check-card ${i<Math.min(12,(state.today?.completed||0))?"done":""}" onclick="completeCheck(${i})">${i<Math.min(12,(state.today?.completed||0))?"✓":"☐"} ${x}</button>`).join("")}</div></section>`;
+}
+function completeCheck(i){state.today=state.today||{};state.today.completed=Math.min(12,Math.max(state.today.completed||0,i+1));save();render()}
+function calendarPage(){
+ const days=[];for(let i=29;i>=0;i--){const d=new Date(Date.now()-i*864e5);const k=d.toISOString().slice(0,10);const h=state.history?.[k];days.push({d,k,h})}
+ return `<div class="page-title"><div><h2>📅 Calendar</h2><p>🟢 ครบ · 🟡 บางส่วน · ⚪ ยังไม่ได้ฝึก</p></div></div><section class="panel"><div class="check-grid">${days.map(x=>`<button class="check-card" onclick="dayDetail('${x.k}')">${x.h?.completed>=5?"🟢":x.h?.attempts?"🟡":"⚪"} <b>${new Date(x.k).toLocaleDateString("th-TH",{day:"numeric",month:"short"})}</b><span style="margin-left:auto;color:var(--muted)">${x.h?.learned||0} คำ</span></button>`).join("")}</div></section>`;
+}
+function dayDetail(k){const h=state.history?.[k]||{};alert(`${k}\nMode: ${h.mode||"-"}\nคำศัพท์: ${h.learned||0}\nAccuracy: ${h.attempts?Math.round(h.correct/h.attempts*100):0}%\nเวลา: ${Math.round((h.time||0)/60000)} นาที\nLetters: ${h.letters?.join(", ")||"-"}`)}
+function settingsPage(){return `<div class="page-title"><div><h2>⚙️ Settings</h2><p>ตั้งค่าการใช้งานของ Daily Word Training</p></div></div>
+<section class="panel"><h3 class="section-title">Theme</h3><div class="choice-grid"><button class="choice ${state.theme!=="dark"?"active":""}" onclick="setThemePref('light')">☀️ Light</button><button class="choice ${state.theme==="dark"?"active":""}" onclick="setThemePref('dark')">🌙 Dark</button></div></section>
+<section class="panel"><h3 class="section-title">Word Data</h3><p style="color:var(--muted)">ใช้ฐานคำศัพท์จากไฟล์ Words Data ที่แยกออกจาก HTML และรองรับ 3–9 Letters สำหรับการฝึก</p><p style="color:var(--muted)">ฐานข้อมูลที่โหลด: CSW24 · ${typeof CSW24_TOTAL_COUNT==="number"?CSW24_TOTAL_COUNT.toLocaleString():""} คำทั้งหมดในไฟล์</p></section>
+<section class="panel"><h3 class="section-title">ข้อมูลการฝึก</h3><button class="secondary" onclick="resetData()">รีเซ็ตสถิติและความจำ</button></section>`}
+function setThemePref(x){state.theme=x;save();render()}
+function resetData(){if(confirm("ลบสถิติ ความจำ และแผนฝึกในเครื่องนี้ทั้งหมด?")){localStorage.removeItem(KEY);state=loadState();render()}}
+function go(page){state.page=page;save();render()}
+function toggleTheme(){state.theme=state.theme==="dark"?"light":"dark";save();render()}
+function autoWizard(){
+ const modal=document.createElement("div");modal.className="modal-backdrop";modal.innerHTML=`<div class="modal"><h2>✨ เลือกให้ฉัน</h2>
+ <div class="section-title">วันนี้มีเวลาเท่าไร?</div><div class="choice-grid" id="aw-time">${["10 นาที","20 นาที","30 นาที","1 ชั่วโมง","2 ชั่วโมง+"].map(x=>`<button class="choice" onclick="awPick(this,'time')">${x}</button>`).join("")}</div>
+ <div class="section-title" style="margin-top:20px">วันนี้อยากฝึกแบบไหน?</div><div class="choice-grid" id="aw-style">${["ชิล ๆ","ปกติ","จริงจัง","ท้าทายตัวเอง"].map(x=>`<button class="choice" onclick="awPick(this,'style')">${x}</button>`).join("")}</div>
+ <div class="section-title" style="margin-top:20px">วันนี้อยากเน้นอะไร?</div><div class="choice-grid" id="aw-focus">${["ศัพท์ใหม่","จำศัพท์เก่า","Anagram","Letters ที่อ่อน","ทุกอย่าง"].map(x=>`<button class="choice" onclick="awPick(this,'focus')">${x}</button>`).join("")}</div>
+ <div class="actions"><button class="secondary" onclick="this.closest('.modal-backdrop').remove()">ยกเลิก</button><button class="primary" onclick="finishWizard(this)">สร้าง Daily Plan</button></div></div>`;
+ document.body.appendChild(modal)
+}
+const aw={};
+function awPick(btn,k){document.querySelectorAll(`#aw-${k} .choice`).forEach(x=>x.classList.remove("active"));btn.classList.add("active");aw[k]=btn.textContent.trim()}
+function finishWizard(btn){
+ let id="steady";
+ if(aw.time==="10 นาที")id="speed";else if(aw.time==="2 ชั่วโมง+")id="full";else if(aw.time==="1 ชั่วโมง")id=aw.style==="ชิล ๆ"?"marathon":"full";else if(aw.style==="ชิล ๆ")id="chill";else if(aw.style==="จริงจัง")id="marathon";else if(aw.style==="ท้าทายตัวเอง")id="challenge";
+ if(aw.focus==="จำศัพท์เก่า")id="review";if(aw.focus==="Anagram")state.types=["Anagram","Letter → Word"];if(aw.focus==="Letters ที่อ่อน")id="letters";
+ state.mode=id;state.selectedMode=id;state.page="practice";save();btn.closest(".modal-backdrop").remove();state.toast=`สร้างแผน ${modeById(id).name} ให้แล้ว`;render()
+}
+window.addEventListener("load",()=>{state.page=state.page||"home";state.letters=state.letters?.length?state.letters:LETTERS;render()});
+window.go=go;window.chooseMode=chooseMode;window.setCount=setCount;window.setCustomCount=setCustomCount;window.toggleLetter=toggleLetter;window.selectAllLetters=selectAllLetters;window.toggleType=toggleType;window.startSession=startSession;window.submitAnswer=submitAnswer;window.skipAnswer=skipAnswer;window.startReview=startReview;window.completeCheck=completeCheck;window.setThemePref=setThemePref;window.resetData=resetData;window.toggleTheme=toggleTheme;window.autoWizard=autoWizard;window.awPick=awPick;window.finishWizard=finishWizard;

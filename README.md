@@ -1,25 +1,13 @@
-# Scrabble Note
-Offline-first note/planner/word-bank web app.
+# Daily Word Training
 
-## Features
-- Autosave to browser localStorage
-- Notes with tags, favorites, search and trash
-- Scrabble Word Bank with meaning, tags and tile points
-- 7-day planner
-- JSON export/import backup
-- Light/dark mode
-- Responsive layout
-- No backend required
+เว็บฝึกจำคำศัพท์สำหรับ Word Game / Scrabble ความยาว 3–9 Letters
 
-Open `index.html` directly, or deploy the folder to GitHub Pages.
+## เปิดใช้งาน
+1. เปิด `index.html` ด้วย browser หรือวางทั้งโฟลเดอร์บน static hosting
+2. ไฟล์ `words-data.js` เป็นฐานคำศัพท์แยกจาก HTML ตามที่ต้องการ
+3. ระบบเก็บสถิติ/Spaced Repetition ใน localStorage ของ browser
 
-
-## อัปเดตระบบใช้งาน 2 จอ
-- แบ่งพื้นที่เป็น 2 จอ: รายการโน้ต + ตัวแก้ไข พร้อมเส้นแบ่งที่ลากปรับความกว้างได้
-- ปุ่ม `↔ สัดส่วน` สำหรับเปลี่ยนสัดส่วนอย่างรวดเร็ว
-- ปุ่ม `‹ รายการ` / `⇋ 2 จอ` สำหรับซ่อน/แสดงรายการโน้ต
-- `□ เขียน` เปิดโหมดเขียนเต็มพื้นที่ เหมาะกับ iPad และการจดต่อเนื่อง
-- จำความกว้างของรายการโน้ตไว้ในเครื่องอัตโนมัติ
-- เพิ่ม `＋ Word` สำหรับแทรกคำลงในโน้ต และ `⧉` สำหรับทำสำเนาโน้ต
-- เพิ่มคีย์ลัด `⌘/Ctrl + N` สร้างโน้ตใหม่ และ `⌘/Ctrl + K` ไปช่องค้นหา
-- ปุ่มต่าง ๆ ออกแบบให้กดง่ายบนหน้าจอสัมผัส
+## หมายเหตุ
+- คำศัพท์และรายการคำมาจาก Words Data ที่ผู้ใช้อัปโหลด
+- ระบบสร้าง Anagram จากการเรียงตัวอักษรของคำในฐานข้อมูล
+- เวอร์ชันนี้เป็น client-side app ไม่ต้องมี server
